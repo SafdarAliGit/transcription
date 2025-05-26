@@ -49,7 +49,7 @@ class VoiceRecorder {
       this.recording = true;
       this.$voiceBtn.html('🔴 Recording...').addClass('btn-danger');
       this.audioChunks = [];
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.mediaRecorder = new MediaRecorder(this.stream);
       this.mediaRecorder.ondataavailable = (e) => this.audioChunks.push(e.data);
       this.mediaRecorder.start();
@@ -63,11 +63,13 @@ class VoiceRecorder {
     e.preventDefault();
     if (!this.recording || !this.mediaRecorder) return;
     try {
+      this.mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        const text = await this.transcribeAudio(audioBlob);
+        this.frm.set_value('transcription_text', text);
+      };
       this.mediaRecorder.stop();
       this.stream.getTracks().forEach(track => track.stop());
-      const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-      const text = await this.transcribeAudio(audioBlob);
-      this.frm.set_value('transcription_text', text);
     } catch (err) {
       this.showError(`Processing error: ${err.message}`);
     } finally {
