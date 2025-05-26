@@ -3,6 +3,7 @@ import os
 import tempfile
 from vosk import Model, KaldiRecognizer
 import soundfile as sf
+import frappe
 
 @frappe.whitelist()
 def transcribe_audio(audio_data, audio_format='webm'):
