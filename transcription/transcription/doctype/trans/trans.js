@@ -49,10 +49,22 @@ class VoiceRecorder {
       this.recording = true;
       this.$voiceBtn.html('🔴 Recording...').addClass('btn-danger');
       this.audioChunks = [];
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request audio with specific constraints for voice recording
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,           // mono
+          sampleRate: 16000,         // 16 kHz
+          sampleSize: 16,            // 16 bits
+          echoCancellation: true,    // recommended for voice
+          noiseSuppression: true,    // recommended for voice
+          autoGainControl: true      // recommended for voice
+        }
+      });
+      this.stream = stream;
+      // Use lower bitrate for voice recording
       this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType: 'audio/webm',
-        audioBitsPerSecond: 256000
+        mimeType: 'audio/webm;codecs=opus',
+        audioBitsPerSecond: 32000  // Suitable for voice
       });
       this.mediaRecorder.ondataavailable = (e) => this.audioChunks.push(e.data);
       this.mediaRecorder.start();
@@ -83,10 +95,20 @@ class VoiceRecorder {
 
   async transcribeAudio(blob) {
     try {
-      // Convert WebM to WAV using AudioContext
-      const audioContext = new AudioContext();
+      // Convert WebM to WAV using AudioContext with resampling
+      const audioContext = new AudioContext({ sampleRate: 16000 });
       const audioData = await blob.arrayBuffer();
       const audioBuffer = await audioContext.decodeAudioData(audioData);
+      
+      // Create offline context for resampling if needed
+      if (audioBuffer.sampleRate !== 16000) {
+        const offlineCtx = new OfflineAudioContext(1, audioBuffer.duration * 16000, 16000);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start();
+        audioBuffer = await offlineCtx.startRendering();
+      }
       
       // Create WAV file
       const wavBlob = await this.audioBufferToWav(audioBuffer);

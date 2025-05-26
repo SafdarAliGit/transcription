@@ -28,8 +28,8 @@ def transcribe_audio(audio_data):
         # 3. Validate WAV format
         try:
             with wave.open(temp_path, 'rb') as wf:
-                if not wf.getfrmts() == wave.WAVE_FORMAT_PCM:
-                    return {"text": "Error: Audio must be in PCM WAV format"}
+                if wf.getcomptype() != 'NONE':
+                    return {"text": "Error: Audio must be uncompressed PCM WAV format"}
                 
                 # Check audio parameters
                 channels = wf.getnchannels()
