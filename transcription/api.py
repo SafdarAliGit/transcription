@@ -22,36 +22,30 @@ def transcribe_audio(audio_data, audio_format='wav'):
         with open(temp_path, 'wb') as f:
             f.write(base64.b64decode(audio_data))
         
-        # 3. Verify WAV file
+        # 3. Robust audio reading
         try:
+            import soundfile as sf
+            audio, sr = sf.read(temp_path)
+        except:
+            # Fallback for malformed WAV files
             with wave.open(temp_path, 'rb') as wf:
-                if wf.getnchannels() != 1:
-                    raise Exception("Vosk requires mono audio")
-                if wf.getsampwidth() != 2:
-                    raise Exception("16-bit WAV required")
-        except Exception as e:
-            raise Exception(f"Invalid WAV file: {str(e)}")
+                sr = wf.getframerate()
+                audio = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+                audio = audio.astype(np.float32) / 32768.0
         
-        # 4. Process audio
-        with open(temp_path, 'rb') as f:
-            recognizer = KaldiRecognizer(model, 16000)
-            while True:
-                data = f.read(4000)
-                if len(data) == 0:
-                    break
-                if not recognizer.AcceptWaveform(data):
-                    continue
+        # 4. Resample if needed
+        if sr != 16000:
+            import librosa
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
         
-        return {
-            "text": recognizer.FinalResult(),
-            "error": None
-        }
+        # 5. Process audio
+        recognizer = KaldiRecognizer(model, 16000)
+        recognizer.AcceptWaveform(audio.tobytes())
+        
+        return {"text": recognizer.FinalResult()}
         
     except Exception as e:
-        return {
-            "text": None,
-            "error": str(e)
-        }
+        return {"text": f"Server Error: {str(e)}"}
         
     finally:
         if temp_path and os.path.exists(temp_path):
