@@ -114,8 +114,9 @@ class VoiceRecorder {
           reader.readAsDataURL(wavBlob);
         });
     
+        
         const response = await frappe.call({
-          method: 'your_app.api.transcribe_audio',
+          method: 'transcription.api.transcribe_audio',
           args: { audio_data: base64data, audio_format: 'wav' },
           async: true
         });
