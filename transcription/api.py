@@ -18,7 +18,7 @@ def transcribe_audio(audio_data, audio_format='webm'):
             f.write(audio_bytes)
         
         # 3. Load Vosk model
-        model_path = os.path.join(frappe.get_app_path('transcription'), 'model')
+        model_path = "/home/safdar/frappe-bench/apps/transcription/transcription/model"
         if not os.path.exists(model_path):
             frappe.throw(f"Model not found at {model_path}")
         
