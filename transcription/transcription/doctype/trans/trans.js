@@ -102,11 +102,24 @@ class VoiceRecorder {
   
     async transcribeAudio(audioBlob) {
       try {
+        // Convert Blob to Base64 for Frappe.call
+        const reader = new FileReader();
+        const audioPromise = new Promise((resolve) => {
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(audioBlob);
+        });
+    
+        const audioBase64 = await audioPromise;
+    
         const response = await frappe.call({
           method: 'transcription.api.transcribe_audio',
-          args: { audio: audioBlob },
+          args: { 
+            audio_data: audioBase64,
+            audio_format: 'webm' // or 'wav'
+          },
           async: true
         });
+        
         return response.message.text || "No text detected";
       } catch (err) {
         console.error("Transcription failed:", err);
