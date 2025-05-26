@@ -4,4 +4,4 @@ This is voice to text app
 
 #### License
 
-mit
+mit# transcription
