@@ -8,7 +8,11 @@ import frappe
 
 @frappe.whitelist()
 def transcribe_audio(audio_data):
-    import base64, os, tempfile, wave, json
+    import base64
+    import os
+    import tempfile
+    import wave
+    import json
     from vosk import Model, KaldiRecognizer
 
     temp_path = None
@@ -16,26 +20,31 @@ def transcribe_audio(audio_data):
         if not audio_data:
             return {"text": "Error: No audio data provided."}
 
-        # Save to temp file
-        _, temp_path = tempfile.mkstemp(suffix='.wav')
+        # 1. Save to temp file
         try:
-            with open(temp_path, 'wb') as f:
-                f.write(base64.b64decode(audio_data))
+            decoded_data = base64.b64decode(audio_data)
         except Exception as decode_error:
             return {"text": f"Error decoding audio data: {str(decode_error)}"}
 
-        # Load model
+        if not decoded_data:
+            return {"text": "Error: Decoded audio data is empty."}
+
+        _, temp_path = tempfile.mkstemp(suffix='.wav')
+        with open(temp_path, 'wb') as f:
+            f.write(decoded_data)
+
+        # 2. Load model
         model_path = "/home/safdar/frappe-bench/apps/transcription/transcription/model"
         if not os.path.exists(model_path):
-            return {"text": "Error: Model path does not exist."}
+            return {"text": "Error: Model path does not exist"}
 
         model = Model(model_path)
 
-        # Try opening WAV file
+        # 3. Open and validate WAV file
         try:
             with wave.open(temp_path, 'rb') as wf:
                 if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 16000:
-                    return {"text": "Error: Audio must be mono, 16-bit, 16kHz WAV format."}
+                    return {"text": "Error: Audio must be WAV format, Mono, 16-bit, 16kHz"}
 
                 recognizer = KaldiRecognizer(model, 16000)
                 while True:
