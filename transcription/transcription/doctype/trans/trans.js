@@ -50,7 +50,10 @@ class VoiceRecorder {
       this.$voiceBtn.html('🔴 Recording...').addClass('btn-danger');
       this.audioChunks = [];
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.mediaRecorder = new MediaRecorder(this.stream);
+      this.mediaRecorder = new MediaRecorder(this.stream, {
+        mimeType: 'audio/webm',
+        audioBitsPerSecond: 256000
+      });
       this.mediaRecorder.ondataavailable = (e) => this.audioChunks.push(e.data);
       this.mediaRecorder.start();
     } catch (err) {
@@ -80,7 +83,14 @@ class VoiceRecorder {
 
   async transcribeAudio(blob) {
     try {
-      const base64data = await this.blobToBase64(blob);
+      // Convert WebM to WAV using AudioContext
+      const audioContext = new AudioContext();
+      const audioData = await blob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(audioData);
+      
+      // Create WAV file
+      const wavBlob = await this.audioBufferToWav(audioBuffer);
+      const base64data = await this.blobToBase64(wavBlob);
       const response = await frappe.call({
         method: 'transcription.api.transcribe_audio',
         args: { audio_data: base64data },
@@ -90,6 +100,56 @@ class VoiceRecorder {
     } catch (err) {
       console.error("Transcription failed:", err);
       return `Error: ${err.message}`;
+    }
+  }
+
+  audioBufferToWav(buffer) {
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1; // PCM
+    const bitDepth = 16;
+    
+    const dataLength = buffer.length * numChannels * 2; // 2 bytes per sample
+    const arrayBuffer = new ArrayBuffer(44 + dataLength);
+    const view = new DataView(arrayBuffer);
+    
+    // RIFF identifier
+    this.writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataLength, true);
+    this.writeString(view, 8, 'WAVE');
+    
+    // fmt chunk
+    this.writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, bitDepth, true);
+    
+    // data chunk
+    this.writeString(view, 36, 'data');
+    view.setUint32(40, dataLength, true);
+    
+    // Write the PCM samples
+    const data = new Float32Array(buffer.length * numChannels);
+    let offset = 44;
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      const channelData = buffer.getChannelData(i);
+      for (let j = 0; j < channelData.length; j++) {
+        const sample = Math.max(-1, Math.min(1, channelData[j]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return new Blob([view], { type: 'audio/wav' });
+  }
+
+  writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
     }
   }
 
