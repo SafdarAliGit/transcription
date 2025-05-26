@@ -82,7 +82,7 @@ class VoiceRecorder {
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         const text = await this.transcribeAudio(audioBlob);
         this.frm.set_value('transcription_text', text);
-        console.log(text);
+        this.frm.refresh_field('transcription_text');
       };
       this.mediaRecorder.stop();
       this.stream.getTracks().forEach(track => track.stop());
