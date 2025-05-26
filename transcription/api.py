@@ -7,45 +7,37 @@ import numpy as np
 import frappe
 
 @frappe.whitelist()
-def transcribe_audio(audio_data, audio_format='wav'):
+def transcribe_audio(audio_data):
     temp_path = None
     try:
-        # 1. Load model
-        model_path = "/home/safdar/frappe-bench/apps/transcription/transcription/model"
-        if not os.path.exists(model_path):
-            raise Exception(f"Model path {model_path} does not exist")
-        
-        model = Model(model_path)
-        
-        # 2. Save audio to temp file
+        # 1. Save to temp file
         _, temp_path = tempfile.mkstemp(suffix='.wav')
         with open(temp_path, 'wb') as f:
             f.write(base64.b64decode(audio_data))
         
-        # 3. Robust audio reading
-        try:
-            import soundfile as sf
-            audio, sr = sf.read(temp_path)
-        except:
-            # Fallback for malformed WAV files
-            with wave.open(temp_path, 'rb') as wf:
-                sr = wf.getframerate()
-                audio = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
-                audio = audio.astype(np.float32) / 32768.0
+        # 2. Validate WAV header
+        with wave.open(temp_path, 'rb') as wf:
+            if wf.getnchannels() != 1:
+                raise Exception("Audio must be mono")
+            if wf.getframerate() != 16000:
+                raise Exception("Sample rate must be 16000Hz")
         
-        # 4. Resample if needed
-        if sr != 16000:
-            import librosa
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+        # 3. Load model
+        model = Model("/home/safdar/frappe-bench/apps/transcription/transcription/model")
         
-        # 5. Process audio
+        # 4. Process in chunks
         recognizer = KaldiRecognizer(model, 16000)
-        recognizer.AcceptWaveform(audio.tobytes())
+        with open(temp_path, 'rb') as f:
+            while True:
+                data = f.read(4000)
+                if len(data) == 0:
+                    break
+                recognizer.AcceptWaveform(data)
         
         return {"text": recognizer.FinalResult()}
         
     except Exception as e:
-        return {"text": f"Server Error: {str(e)}"}
+        return {"text": f"Error: {str(e)}"}
         
     finally:
         if temp_path and os.path.exists(temp_path):

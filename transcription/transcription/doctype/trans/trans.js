@@ -100,32 +100,122 @@ class VoiceRecorder {
       }
     }
   
-    async transcribeAudio(audioBlob) {
+    async transcribeAudio() {
       try {
-        // First convert to known format
-        const convertedBlob = await this.convertToSupportedFormat(audioBlob);
-        
-        // Then proceed with WAV conversion
-        const wavBlob = await this.convertToWav(convertedBlob);
-        
-        const base64data = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.readAsDataURL(wavBlob);
+        // 1. Get audio stream with optimal constraints
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,  // Match Vosk's preferred rate
+            channelCount: 1,    // Force mono
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
         });
-    
         
-        const response = await frappe.call({
-          method: 'transcription.api.transcribe_audio',
-          args: { audio_data: base64data, audio_format: 'wav' },
-          async: true
+        // 2. Record using MediaRecorder with WAV format
+        const chunks = [];
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'audio/wav',  // Some browsers support this directly
+          audioBitsPerSecond: 128000
         });
-    
-        return response.message.text || "No transcription";
+        
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        
+        // 3. Return a promise that resolves with WAV blob
+        return new Promise((resolve) => {
+          mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(track => track.stop());
+            
+            // 4. Ensure proper WAV format
+            const blob = new Blob(chunks, { type: 'audio/wav' });
+            const validBlob = await this.validateAudioBlob(blob);
+            
+            // 5. Convert to base64 for transmission
+            const base64data = await this.blobToBase64(validBlob);
+            
+            const response = await frappe.call({
+              method: 'transcription.api.transcribe_audio',
+              args: { audio_data: base64data },
+              async: true
+            });
+            
+            resolve(response.message.text || "No transcription");
+          };
+          
+          mediaRecorder.start();
+          setTimeout(() => mediaRecorder.stop(), 5000); // Stop after 5s
+        });
+        
       } catch (err) {
-        console.error("Transcription error:", err);
+        console.error("Recording failed:", err);
         return `Error: ${err.message}`;
       }
+    }
+    
+    async validateAudioBlob(blob) {
+      // First try direct WAV playback
+      try {
+        const audio = new Audio();
+        audio.src = URL.createObjectURL(blob);
+        await new Promise((resolve, reject) => {
+          audio.oncanplay = resolve;
+          audio.onerror = () => reject(new Error("Invalid WAV"));
+        });
+        return blob;
+      } catch {
+        // Fallback to Web Audio conversion
+        return await this.convertToWav(blob);
+      }
+    }
+    
+    async convertToWav(blob) {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 16000  // Match Vosk's requirement
+      });
+      
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        
+        // Convert to mono if needed
+        let sourceBuffer = audioBuffer;
+        if (audioBuffer.numberOfChannels > 1) {
+          sourceBuffer = this.convertToMono(audioBuffer);
+        }
+        
+        return new Blob([this.audioBufferToWav(sourceBuffer)], { type: 'audio/wav' });
+      } catch (err) {
+        console.error("Audio conversion failed:", err);
+        throw new Error("Could not process audio");
+      }
+    }
+    
+    convertToMono(audioBuffer) {
+      const monoBuffer = new AudioContext().createBuffer(
+        1,
+        audioBuffer.length,
+        audioBuffer.sampleRate
+      );
+      
+      const mixedChannel = monoBuffer.getChannelData(0);
+      for (let i = 0; i < audioBuffer.length; i++) {
+        let sum = 0;
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+          sum += audioBuffer.getChannelData(channel)[i];
+        }
+        mixedChannel[i] = sum / audioBuffer.numberOfChannels;
+      }
+      
+      return monoBuffer;
+    }
+    
+    blobToBase64(blob) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.readAsDataURL(blob);
+      });
     }
     
     async convertToSupportedFormat(blob) {
