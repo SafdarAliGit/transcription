@@ -102,28 +102,83 @@ class VoiceRecorder {
   
     async transcribeAudio(audioBlob) {
       try {
-        // Convert Blob to Base64 for Frappe.call
-        const reader = new FileReader();
-        const audioPromise = new Promise((resolve) => {
+        // Convert to WAV format (Vosk works best with WAV)
+        const wavBlob = await this.convertToWav(audioBlob);
+        
+        // Convert to base64
+        const base64data = await new Promise((resolve) => {
+          const reader = new FileReader();
           reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.readAsDataURL(audioBlob);
+          reader.readAsDataURL(wavBlob);
         });
     
-        const audioBase64 = await audioPromise;
-    
         const response = await frappe.call({
-          method: 'transcription.api.transcribe_audio',
-          args: { 
-            audio_data: audioBase64,
-            audio_format: 'webm' // or 'wav'
+          method: 'your_app.api.transcribe_audio',
+          args: {
+            audio_data: base64data,
+            audio_format: 'wav'  // Explicitly specify WAV format
           },
           async: true
         });
+    
+        return response.message.text || "No transcription";
         
-        return response.message.text || "No text detected";
       } catch (err) {
-        console.error("Transcription failed:", err);
-        return "Transcription service unavailable";
+        console.error("Transcription error:", err);
+        return `Error: ${err.message}`;
+      }
+    },
+    
+    async convertToWav(audioBlob) {
+      // Using the Web Audio API to convert to WAV
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      // Convert to WAV
+      const wavBuffer = this.audioBufferToWav(audioBuffer);
+      return new Blob([wavBuffer], { type: 'audio/wav' });
+    },
+    
+    audioBufferToWav(buffer) {
+      const numChannels = buffer.numberOfChannels;
+      const sampleRate = buffer.sampleRate;
+      const length = buffer.length * numChannels * 2 + 44;
+      const wavBuffer = new ArrayBuffer(length);
+      const view = new DataView(wavBuffer);
+      
+      // Write WAV header
+      this.writeString(view, 0, 'RIFF');
+      view.setUint32(4, length - 8, true);
+      this.writeString(view, 8, 'WAVE');
+      this.writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * numChannels * 2, true);
+      view.setUint16(32, numChannels * 2, true);
+      view.setUint16(34, 16, true);
+      this.writeString(view, 36, 'data');
+      view.setUint32(40, buffer.length * numChannels * 2, true);
+      
+      // Write PCM samples
+      let offset = 44;
+      for (let i = 0; i < buffer.numberOfChannels; i++) {
+        const channel = buffer.getChannelData(i);
+        for (let j = 0; j < channel.length; j++) {
+          const sample = Math.max(-1, Math.min(1, channel[j]));
+          view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+          offset += 2;
+        }
+      }
+      
+      return wavBuffer;
+    },
+    
+    writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
       }
     }
   
