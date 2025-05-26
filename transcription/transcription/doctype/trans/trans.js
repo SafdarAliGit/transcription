@@ -127,7 +127,7 @@ class VoiceRecorder {
         console.error("Transcription error:", err);
         return `Error: ${err.message}`;
       }
-    },
+    }
     
     async convertToWav(audioBlob) {
       // Using the Web Audio API to convert to WAV
@@ -138,7 +138,7 @@ class VoiceRecorder {
       // Convert to WAV
       const wavBuffer = this.audioBufferToWav(audioBuffer);
       return new Blob([wavBuffer], { type: 'audio/wav' });
-    },
+    }
     
     audioBufferToWav(buffer) {
       const numChannels = buffer.numberOfChannels;
@@ -174,7 +174,7 @@ class VoiceRecorder {
       }
       
       return wavBuffer;
-    },
+    }
     
     writeString(view, offset, string) {
       for (let i = 0; i < string.length; i++) {
